@@ -37,6 +37,10 @@ const userSchema = new mongoose.Schema({
     matchPreferences: {
         type: Object,
         required: false
+    },
+    likes: {
+        type: [String],
+        default: []
     }
 });
 

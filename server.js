@@ -78,6 +78,58 @@ app.get('/users/search/:interest', auth, async (req, res) => {
     res.send(users);
 });
 
+//Likes senden
+app.put('/users/like/:username', auth, async (req, res) => {
+    const username = req.params.username;
+    const likedUsername = req.body.likedUsername;
+
+    const user = await User.findOne({ username });
+    const likedUser = await User.findOne({ username: likedUsername });
+
+    if (!user || !likedUser) return res.status(404).send('User not found');
+
+    if (user.likes.includes(likedUser._id)) {
+        return res.status(400).send('You have already liked this user');
+    }
+
+    if (likedUser._id.toString() === user._id.toString()) {
+        return res.status(400).send('You cannot like yourself');
+    }    
+
+    user.likes.push(likedUser._id);
+    await user.save();
+
+    res.send(user);
+});
+
+//Likes abrufen
+app.get('/users/likes/:username', auth, async (req, res) => {
+    const username = req.params.username;
+
+    const user = await User.findOne({ username });
+    if (!user) return res.status(404).send('User not found');
+
+    const likes = await User.find({ _id: { $in: user.likes } });
+
+    res.send(likes);
+});
+
+//Matches anzeigen
+app.get('/users/matches/:username', auth, async (req, res) => {
+    const username = req.params.username;
+
+    const user = await User.findOne({ username });
+    if (!user) return res.status(404).send('User not found');
+
+    // Finden Sie alle Benutzer, die der aktuelle Benutzer geliked hat
+    const likedUsers = await User.find({ _id: { $in: user.likes } });
+
+    // Filtern Sie diese Liste, um nur die Benutzer zu behalten, die den aktuellen Benutzer auch geliked haben
+    const matches = likedUsers.filter(likedUser => likedUser.likes.includes(user._id.toString()));
+
+    res.send(matches);
+});
+
 function auth(req, res, next) {
     const token = req.header('auth-token');
     if (!token) return res.status(401).send('Access denied');
