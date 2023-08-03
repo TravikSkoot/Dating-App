@@ -1,7 +1,8 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
-const User = require('./models/user');  // Pfad zu Ihrem User-Modell
+const User = require('./models/user');
+const Message = require('./models/message');
 const jwt = require('jsonwebtoken');
 
 const app = express();
@@ -12,6 +13,20 @@ mongoose.connect('mongodb+srv://TravikSkoot:SK914010ok.@cluster0.rxducmd.mongodb
 
 app.use(express.json());  // Damit Express JSON-Body-Parsing unterstützt
 
+//Authentifizierung
+function auth(req, res, next) {
+    const token = req.header('auth-token');
+    if (!token) return res.status(401).send('Access denied');
+
+    try {
+        const verified = jwt.verify(token, 'your_jwt_secret');
+        req.user = verified;
+        
+        next();
+    } catch (err) {
+        res.status(400).send('Invalid token');
+    }
+}
 //Registrierung
 app.post('/users/register', async (req, res) => {
     const { username, email, password } = req.body;
@@ -41,7 +56,7 @@ app.post('/users/login', async (req, res) => {
     res.header('auth-token', token).send(token);
 });
 
-//Profil Updaten
+//Profil aktualisieren
 app.put('/users/profile', auth, async (req, res) => {
     const { email, realname, age, gender, interests, bio, matchPreferences } = req.body;
 
@@ -60,6 +75,7 @@ app.put('/users/profile', auth, async (req, res) => {
     res.send('Profile updated successfully');
 });
 
+//Profil anzeigen
 app.get('/users/profile/:username', auth, async (req, res) => {
     const username = req.params.username;
 
@@ -69,6 +85,7 @@ app.get('/users/profile/:username', auth, async (req, res) => {
     res.send(user);
 });
 
+//Interessen suchen
 app.get('/users/search/:interest', auth, async (req, res) => {
     const interest = req.params.interest;
 
@@ -121,27 +138,41 @@ app.get('/users/matches/:username', auth, async (req, res) => {
     const user = await User.findOne({ username });
     if (!user) return res.status(404).send('User not found');
 
-    // Finden Sie alle Benutzer, die der aktuelle Benutzer geliked hat
     const likedUsers = await User.find({ _id: { $in: user.likes } });
 
-    // Filtern Sie diese Liste, um nur die Benutzer zu behalten, die den aktuellen Benutzer auch geliked haben
     const matches = likedUsers.filter(likedUser => likedUser.likes.includes(user._id.toString()));
 
     res.send(matches);
 });
 
-function auth(req, res, next) {
-    const token = req.header('auth-token');
-    if (!token) return res.status(401).send('Access denied');
+//Nachrichten senden
+app.post('/messages', auth, async (req, res) => {
+    const { receiver, text } = req.body;
 
-    try {
-        const verified = jwt.verify(token, 'your_jwt_secret');
-        req.user = verified;
-        next();
-    } catch (err) {
-        res.status(400).send('Invalid token');
+    // Überprüfen Sie, ob der Benutzer versucht, eine Nachricht an sich selbst zu senden
+    if (req.user._id === receiver) {
+        return res.status(400).send('Cannot send a message to yourself');
     }
-}
+    
+    const message = new Message({
+        sender: req.user._id,
+        receiver,
+        text
+    });
+
+    await message.save();
+
+    res.status(201).send('Message sent');
+});
+
+
+//Nachricht abrufen
+app.get('/messages', auth, async (req, res) => {
+    const messages = await Message.find({ receiver: req.user._id }).populate('sender');
+
+    res.send(messages);
+});
+
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log(`Server is running on port ${port}`));
