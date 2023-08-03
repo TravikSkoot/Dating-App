@@ -41,6 +41,10 @@ const userSchema = new mongoose.Schema({
     likes: {
         type: [String],
         default: []
+    },
+    profileImage: {
+        data: Buffer,
+        contentType: String
     }
 });
 

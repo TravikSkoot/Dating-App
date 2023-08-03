@@ -4,8 +4,20 @@ const bcrypt = require('bcrypt');
 const User = require('./models/user');
 const Message = require('./models/message');
 const jwt = require('jsonwebtoken');
-
+const multer = require('multer');
 const app = express();
+
+const upload = multer({
+    limits: {
+      fileSize: 10000000, // limit to 1MB
+    },
+    fileFilter(req, file, cb) {
+      if (!file.originalname.match(/\.(jpg|jpeg|png)$/)) {
+        cb(new Error('Please upload an image file (jpg, jpeg or png)'));
+      }
+      cb(null, true);
+    },
+  });
 
 mongoose.connect('mongodb+srv://TravikSkoot:SK914010ok.@cluster0.rxducmd.mongodb.net/?retryWrites=true&w=majority', { useNewUrlParser: true, useUnifiedTopology: true })
     .then(() => console.log('Connected to MongoDB'))
@@ -85,12 +97,18 @@ app.get('/users/profile/:username', auth, async (req, res) => {
     res.send(user);
 });
 
-//Interessen suchen
-app.get('/users/search/:interest', auth, async (req, res) => {
-    const interest = req.params.interest;
+app.get('/users/search', async (req, res) => {
+    const { interest, age, gender } = req.query;
 
-    const users = await User.find({ interests: interest });
-    if (users.length === 0) return res.status(404).send('No users found with that interest');
+    const query = {};
+    
+    if (interest) query.interests = interest;
+    if (age) query.age = { $gte: age.min, $lte: age.max };
+    if (gender) query.gender = { $in: gender.split(',') };
+    
+    const users = await User.find(query);
+    
+    if (users.length === 0) return res.status(404).send('No users found with that criteria');
 
     res.send(users);
 });
@@ -171,6 +189,34 @@ app.get('/messages', auth, async (req, res) => {
     const messages = await Message.find({ receiver: req.user._id }).populate('sender');
 
     res.send(messages);
+});
+
+//Bild Upload
+app.post('/users/uploadimage', auth, upload.single('image'), async (req, res) => {
+    console.log("Request ---", req.body);
+    console.log("Request file ---", req.file); // Multer speichert das Bild im Speicher und nicht auf dem Dateisystem
+
+    const user = await User.findOne({ _id: req.user._id });
+    if (!user) return res.status(404).send('User not found');
+    
+    user.profileImage = {
+        data: req.file.buffer,
+        contentType: req.file.mimetype
+    };
+    await user.save();
+
+    return res.send(200).end();
+});
+
+//Bild anzeige
+app.get('/users/profileimage/:username', auth, async (req, res) => {
+    const username = req.params.username;
+
+    const user = await User.findOne({ username });
+    if (!user || !user.profileImage) return res.status(404).send('User or image not found');
+
+    res.set('Content-Type', user.profileImage.contentType);
+    res.send(user.profileImage.data);
 });
 
 
