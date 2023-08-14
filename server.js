@@ -8,6 +8,7 @@ const multer = require('multer');
 const app = express();
 const Report = require('./models/report');
 const Block = require('./models/block');
+const ProfilePicture = require('./models/profilePictures');
 
 
 const port = process.env.PORT || 3000;
@@ -21,7 +22,7 @@ app.use(express.json());  // Damit Express JSON-Body-Parsing unterstützt
 
 const upload = multer({
     limits: {
-      fileSize: 10000000, // limit to 1MB
+      fileSize: 10000000, // limit to 10MB
     },
     fileFilter(req, file, cb) {
       if (!file.originalname.match(/\.(jpg|jpeg|png)$/)) {
@@ -205,25 +206,36 @@ app.post('/users/uploadimage', auth, upload.single('image'), async (req, res) =>
 
     const user = await User.findOne({ _id: req.user._id });
     if (!user) return res.status(404).send('User not found');
-    
-    user.profileImage = {
-        data: req.file.buffer,
-        contentType: req.file.mimetype
-    };
-    await user.save();
 
-    return res.send(200).end();
+    let profilePic = await ProfilePicture.findOne({ username: user.username }); // Suche nach username
+
+    if (!profilePic) {
+        profilePic = new ProfilePicture({
+            username: user.username, // Setze username
+            data: req.file.buffer,
+            contentType: req.file.mimetype
+        });
+    } else {
+        profilePic.profileImage.data = req.file.buffer;
+        profilePic.profileImage.contentType = req.file.mimetype;
+    }
+    console.log(profilePic);        // Loggen Sie das gesamte Profilbild-Objekt
+    console.log(profilePic.data);   // Loggen Sie nur den Buffer des Bildes
+    await profilePic.save();
+    res.status(200).send('Image uploaded successfully');
 });
 
 // Bild anzeigen
 app.get('/users/profileimage/:username', auth, async (req, res) => {
-    const username = req.params.username;
+    const profilePic = await ProfilePicture.findOne({ username: req.params.username }); // Suche nach username
+    
+    if (!profilePic) return res.status(404).send('Image not found');
 
-    const user = await User.findOne({ username });
-    if (!user || !user.profileImage) return res.status(404).send('User or image not found');
+    console.log(profilePic);        // Loggen Sie das gesamte Profilbild-Objekt
+    console.log(profilePic.data);   // Loggen Sie nur den Buffer des Bildes
 
-    res.set('Content-Type', user.profileImage.contentType);
-    res.send(user.profileImage.data);
+    res.set('Content-Type', profilePic.profileImage.contentType);
+    res.send(profilePic.profileImage.data);
 });
 
 // Report Funktion

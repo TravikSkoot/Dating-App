@@ -42,10 +42,6 @@ const userSchema = new mongoose.Schema({
         type: [String],
         default: []
     },
-    profileImage: {
-        data: Buffer,
-        contentType: String
-    },
     blockedUsers: {
         type: [mongoose.Schema.Types.ObjectId],
         ref: 'User',
