@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const User = require('./models/user');
 const Message = require('./models/message');
+const Chat = require('./models/chat');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const app = express();
@@ -48,14 +49,14 @@ function auth(req, res, next) {
 }
 // Registrierung
 app.post('/users/register', async (req, res) => {
-    const { username, email, password } = req.body;
+    const { userId, email, password } = req.body;
     
     let user = await User.findOne({ email });
     if (user) return res.status(400).send('User already exists');
     
     const hashedPassword = await bcrypt.hash(password, 10);
     
-    user = new User({ username, email, password: hashedPassword });
+    user = new User({ userId, email, password: hashedPassword });
     await user.save();
     
     res.status(201).send('User registered successfully');
@@ -95,10 +96,10 @@ app.put('/users/profile', auth, async (req, res) => {
 });
 
 // Profil anzeigen
-app.get('/users/profile/:username', auth, async (req, res) => {
-    const username = req.params.username;
+app.get('/users/profile/:userId', auth, async (req, res) => {
+    const userId = req.params.userId;
 
-    const user = await User.findOne({ username });
+    const user = await User.findOne({ userId });
     if (!user) return res.status(404).send('User not found');
 
     res.send(user);
@@ -122,12 +123,12 @@ app.get('/users/search', async (req, res) => {
 });
 
 // Likes senden
-app.put('/users/like/:username', auth, async (req, res) => {
-    const username = req.params.username;
-    const likedUsername = req.body.likedUsername;
+app.put('/users/like/:userId', auth, async (req, res) => {
+    const userId = req.params.userId;
+    const likeduserId = req.body.likeduserId;
 
-    const user = await User.findOne({ username });
-    const likedUser = await User.findOne({ username: likedUsername });
+    const user = await User.findOne({ userId });
+    const likedUser = await User.findOne({ userId: likeduserId });
 
     if (!user || !likedUser) return res.status(404).send('User not found');
 
@@ -146,10 +147,10 @@ app.put('/users/like/:username', auth, async (req, res) => {
 });
 
 // Likes abrufen
-app.get('/users/likes/:username', auth, async (req, res) => {
-    const username = req.params.username;
+app.get('/users/likes/:userId', auth, async (req, res) => {
+    const userId = req.params.userId;
 
-    const user = await User.findOne({ username });
+    const user = await User.findOne({ userId });
     if (!user) return res.status(404).send('User not found');
 
     const likes = await User.find({ _id: { $in: user.likes } });
@@ -158,10 +159,10 @@ app.get('/users/likes/:username', auth, async (req, res) => {
 });
 
 // Matches anzeigen
-app.get('/users/matches/:username', auth, async (req, res) => {
-    const username = req.params.username;
+app.get('/users/matches/:userId', auth, async (req, res) => {
+    const userId = req.params.userId;
 
-    const user = await User.findOne({ username });
+    const user = await User.findOne({ userId });
     if (!user) return res.status(404).send('User not found');
 
     const likedUsers = await User.find({ _id: { $in: user.likes } });
@@ -171,33 +172,57 @@ app.get('/users/matches/:username', auth, async (req, res) => {
     res.send(matches);
 });
 
-// Nachrichten senden
-app.post('/messages', auth, async (req, res) => {
-    const { receiver, text } = req.body;
+// Starte einen Chat mit einem anderen Benutzer
+app.post('/chats/start', auth, async (req, res) => {
+    const userId = req.user._id;
+    const partnerId = req.body.partnerId;
 
-    // Überprüfen Sie, ob der Benutzer versucht, eine Nachricht an sich selbst zu senden
-    if (req.user._id === receiver) {
-        return res.status(400).send('Cannot send a message to yourself');
+    // Überprüfen Sie, ob bereits ein Chat zwischen diesen beiden Benutzern existiert
+    let chat = await Chat.findOne({ users: { $all: [userId, partnerId] } });
+
+    if (!chat) {
+        chat = new Chat({ users: [userId, partnerId] });
+        await chat.save();
     }
-    
+
+    res.send(chat);
+});
+
+
+// Sende eine Nachricht in einem Chat
+app.post('/chats/:chatId/messages', auth, async (req, res) => {
+    const chatId = req.params.chatId;
+    const { text } = req.body;
+
     const message = new Message({
         sender: req.user._id,
-        receiver,
-        text
+        receiver: req.body.receiverId,  // Sie müssen die receiverId im Anfragekörper senden
+        text: text,
+        timestamp: new Date()
     });
 
     await message.save();
 
-    res.status(201).send('Message sent');
+    const chat = await Chat.findById(chatId);
+    chat.messages.push(message._id);
+    chat.lastMessage = message._id;
+
+    await chat.save();
+
+    res.send(message);
 });
 
+// Abrufen von Chat-Nachrichten
+app.get('/chats/:chatId/messages', auth, async (req, res) => {
+    const chatId = req.params.chatId;
 
-// Nachricht abrufen
-app.get('/messages', auth, async (req, res) => {
-    const messages = await Message.find({ receiver: req.user._id }).populate('sender');
+    const chat = await Chat.findById(chatId).populate('messages');
 
-    res.send(messages);
+    if (!chat) return res.status(404).send('Chat not found');
+
+    res.send(chat.messages);
 });
+
 
 // Bild Upload
 app.post('/users/uploadimage', auth, upload.single('image'), async (req, res) => {
@@ -207,11 +232,11 @@ app.post('/users/uploadimage', auth, upload.single('image'), async (req, res) =>
     const user = await User.findOne({ _id: req.user._id });
     if (!user) return res.status(404).send('User not found');
 
-    let profilePic = await ProfilePicture.findOne({ username: user.username }); // Suche nach username
+    let profilePic = await ProfilePicture.findOne({ userId: user.userId }); // Suche nach userId
 
     if (!profilePic) {
         profilePic = new ProfilePicture({
-            username: user.username, // Setze username
+            userId: user.userId, // Setze userId
             data: req.file.buffer,
             contentType: req.file.mimetype
         });
@@ -226,8 +251,8 @@ app.post('/users/uploadimage', auth, upload.single('image'), async (req, res) =>
 });
 
 // Bild anzeigen
-app.get('/users/profileimage/:username', auth, async (req, res) => {
-    const profilePic = await ProfilePicture.findOne({ username: req.params.username }); // Suche nach username
+app.get('/users/profileimage/:userId', auth, async (req, res) => {
+    const profilePic = await ProfilePicture.findOne({ userId: req.params.userId }); // Suche nach userId
     
     if (!profilePic) return res.status(404).send('Image not found');
 
@@ -239,12 +264,12 @@ app.get('/users/profileimage/:username', auth, async (req, res) => {
 });
 
 // Report Funktion
-app.post('/users/report/:username', auth, async (req, res) => {
-    const username = req.params.username;
+app.post('/users/report/:userId', auth, async (req, res) => {
+    const userId = req.params.userId;
     const { reason, additionalComment } = req.body;
 
     const reporter = await User.findOne({ _id: req.user._id });
-    const reportedUser = await User.findOne({ username });
+    const reportedUser = await User.findOne({ userId });
 
     if (!reporter || !reportedUser) return res.status(404).send('User not found');
 
@@ -265,11 +290,11 @@ app.post('/users/report/:username', auth, async (req, res) => {
 });
 
 // Benutzer blockieren
-app.post('/users/block/:username', auth, async (req, res) => {
-    const username = req.params.username;
+app.post('/users/block/:userId', auth, async (req, res) => {
+    const userId = req.params.userId;
 
     const user = await User.findOne({ _id: req.user._id  });
-    const blockedUser = await User.findOne({ username: req.body.blockedUsername });
+    const blockedUser = await User.findOne({ userId: req.body.blockeduserId });
 
     if (!user || !blockedUser) return res.status(404).send('User not found');
 
@@ -286,10 +311,10 @@ app.post('/users/block/:username', auth, async (req, res) => {
 
 // Blockierung aufheben
 app.delete('/users/unblock', auth, async (req, res) => {
-    const { blockedUsername } = req.body;
+    const { blockeduserId } = req.body;
 
     const user = await User.findOne({ _id: req.user._id });
-    const blockedUser = await User.findOne({ username: blockedUsername });
+    const blockedUser = await User.findOne({ userId: blockeduserId });
 
     if (!user || !blockedUser) return res.status(404).send('User not found');
 

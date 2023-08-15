@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 const profilePictureSchema = new mongoose.Schema({
-    username: {
+    userId: {
         type: String,
         ref: 'User',  // Dies verknüpft es mit dem User-Modell
         unique: true  // Stellt sicher, dass jeder Benutzer nur ein Profilbild hat
